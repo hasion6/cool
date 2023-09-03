@@ -1,0 +1,136 @@
+     $memberList[$k]['paid_order_count'] =  $Order->where(['pay_memberid' => $payMemberid, 'pay_status'=>['in', '1,2']])->count();
+                $memberList[$k]['paid_order_count'] +=0;
+                //未付订单数
+                $memberList[$k]['nopaid_order_count'] = $Order->where(['pay_memberid' => $payMemberid, 'pay_status'=>0])->count();
+                $memberList[$k]['nopaid_order_count'] +=0;
+                //提交金额
+                $memberList[$k]['all_order_amount'] = $Order->where(['pay_memberid' => $payMemberid])->sum('pay_amount');
+                $memberList[$k]['all_order_amount'] +=0;
+                //实付金额
+                $memberList[$k]['paid_order_amount'] = $Order->where(['pay_memberid' => $payMemberid, 'pay_status'=>['in', '1,2']])->sum('pay_amount');
+                $memberList[$k]['paid_order_amount'] +=0;
+                //入金手续费
+                $memberList[$k]['pay_amount'] = $Order->where(['pay_memberid' => $payMemberid, 'pay_status'=>['in', '1,2']])->sum('pay_poundage');
+                $memberList[$k]['pay_amount'] +=0;
+                //商户收入
+                $actualamount = M('Order')->where(['pay_memberid'=>$payMemberid, 'status' => ['in', '1,2']])->sum('pay_actualamount');
+                $profitSum = M('moneychange')->where(['userid'=>$v['id'],'lx'=>9])->sum('money');
+                $redoAddSum = M('redo_order')->where(['type'=>1,'user_id'=>$v['id']])->sum('money');
+                $redoReduceSum = M('redo_order')->where(['type'=>2,'user_id'=>$v['id']])->sum('money');
+                $orderSum = $actualamount + $profitSum + $redoAddSum - $redoReduceSum;
+                $memberList[$k]['member_income'] = $orderSum;
+                $memberList[$k]['member_income'] +=0;
+                //平台收入
+                $income_profit = M('Order')->where(['pay_memberid'=>$payMemberid, 'status' => ['in', '1,2']])->sum('pay_poundage');
+                $order_cost = M('Order')->where(['pay_memberid'=>$payMemberid, 'status' => ['in', '1,2']])->sum('cost');
+                $pay_cost = M('wttklist')->where(['userid'=>$v['id'], 'status' => 2])->sum('cost');
+                $agent_profit_cost = M('moneychange')->where(['tcuserid'=>$v['id'],'lx'=>9])->sum('money');
+                $memberList[$k]['platform_income'] = $income_profit - $order_cost - $pay_cost - $agent_profit_cost;
+                $memberList[$k]['platform_income'] += 0;
+            }
+        }
+        $stat['member_count'] = count($memberList);
+        $fields = ['tkmoney', 'sxfmoney', 'money' , 'all_order_count', 'paid_order_count', 'nopaid_order_count', 'all_order_amount', 'paid_order_amount', 'member_income', 'platform_income','balance','blockedbalance','pay_amount','tkmoney','sxfmoney'];
+        foreach($fields as $field ) {
+            foreach($memberList as $k => $v) {
+                $stat[$field] += $v[$field];
+            }
+        }
+        $this->assign('stat', $stat);
+        $this->assign('page', $show);
+        $this->assign('list', $memberList);
+        $this->assign('rows',$rows);
+        $this->display();
+
+    }
+
+    //导出商户交易统计
+    public function exportUserFinance(){
+        $groupid          = I('get.groupid', 'member');
+        $where['groupid'] = $groupid == 'agent' ? ['gt', '4'] : ['eq', '4'];
+        if ($memberid = I('get.memberid', '')) {
+            $where['id'] = $memberid - 10000;
+        }
+        $size = 15;
+        $rows = I('get.rows', $size, 'intval');
+        if (!$rows) {
+            $rows = $size;
+        }
+        $Member     = M('Member');
+        $memberList = $Member
+            ->field(['id', 'username','balance', 'blockedbalance'])
+            ->where($where)
+            ->select();
+        if ($memberList) {
+            $Order    = M('Order');
+            $Wttklist = M('Wttklist');
+            $Tklist   = M('Tklist');
+            foreach ($memberList as $k => $v) {
+                $payMemberid = $v['id'] + 10000;
+
+                $orderList = $Order
+                    ->field(['sum(pay_amount) pay_amount', 'sum(pay_poundage) pay_poundage', 'sum(pay_actualamount) pay_actualamount'])
+                    ->where(['pay_memberid' => $payMemberid, 'pay_status' => ['neq', 0]])
+                    ->find();
+                if (empty($orderList)) {
+                    $orderList = ['pay_amount' => 0.00, 'pay_poundage' => 0.00, 'pay_actualamount' => 0.00];
+                } else {
+                    $orderList['pay_amount']+=0;
+                    $orderList['pay_poundage']+=0;
+                    $orderList['pay_actualamount']+=0;
+                }
+
+                $wttklistList = $Wttklist
+                    ->field(['sum(tkmoney) tkmoney', 'sum(sxfmoney) sxfmoney', 'sum(money) money'])
+                    ->where(['userid' => $v['id'], 'status' => 2])
+                    ->find();
+
+                $tklistList = $Tklist
+                    ->field(['sum(tkmoney) tkmoney', 'sum(sxfmoney) sxfmoney', 'sum(money) money'])
+                    ->where(['userid' => $v['id'], 'status' => 2])
+                    ->find();
+
+                //计算出金的总金额
+                $tempCounts = ['tkmoney' => 0, 'sxfmoney' => 0, 'money' => 0];
+                foreach ($tempCounts as $k1 => $v1) {
+                    $tempCounts[$k1] = (float) ($tklistList[$k1] + $wttklistList[$k1]);
+                }
+                $memberList[$k]                 = array_merge($tempCounts, $orderList, $v);
+                $memberList[$k]['pay_memberid'] = $payMemberid;
+                //提交订单数
+                $memberList[$k]['all_order_count'] =  $Order->where(['pay_memberid' => $payMemberid])->count();
+                $memberList[$k]['all_order_count'] +=0;
+                //已付订单数
+                $memberList[$k]['paid_order_count'] =  $Order->where(['pay_memberid' => $payMemberid, 'pay_status'=>['in', '1,2']])->count();
+                $memberList[$k]['paid_order_count'] +=0;
+                //未付订单数
+                $memberList[$k]['nopaid_order_count'] = $Order->where(['pay_memberid' => $payMemberid, 'pay_status'=>0])->count();
+                $memberList[$k]['nopaid_order_count'] +=0;
+                //提交金额
+                $memberList[$k]['all_order_amount'] = $Order->where(['pay_memberid' => $payMemberid])->sum('pay_amount');
+                $memberList[$k]['all_order_amount'] +=0;
+                //实付金额
+                $memberList[$k]['paid_order_amount'] = $Order->where(['pay_memberid' => $payMemberid, 'pay_status'=>['in', '1,2']])->sum('pay_amount');
+                $memberList[$k]['paid_order_amount'] +=0;
+                //入金手续费
+                $memberList[$k]['pay_amount'] = $Order->where(['pay_memberid' => $payMemberid, 'pay_status'=>['in', '1,2']])->sum('pay_poundage');
+                $memberList[$k]['pay_amount'] +=0;
+                //商户收入
+                $actualamount = M('Order')->where(['pay_memberid'=>$payMemberid, 'status' => ['in', '1,2']])->sum('pay_actualamount');
+                $profitSum = M('moneychange')->where(['userid'=>$v['id'],'lx'=>9])->sum('money');
+                $redoAddSum = M('redo_order')->where(['type'=>1,'user_id'=>$v['id']])->sum('money');
+                $redoReduceSum = M('redo_order')->where(['type'=>2,'user_id'=>$v['id']])->sum('money');
+                $orderSum = $actualamount + $profitSum + $redoAddSum - $redoReduceSum;
+                $memberList[$k]['member_income'] = $orderSum;
+                $memberList[$k]['member_income'] +=0;
+                //平台收入
+                $income_profit = M('Order')->where(['pay_memberid'=>$payMemberid, 'status' => ['in', '1,2']])->sum('pay_poundage');
+                $order_cost = M('Order')->where(['pay_memberid'=>$payMemberid, 'status' => ['in', '1,2']])->sum('cost');
+                $pay_cost = M('wttklist')->where(['userid'=>$v['id'], 'status' => 2])->sum('cost');
+                $agent_profit_cost = M('moneychange')->where(['tcuserid'=>$v['id'],'lx'=>9])->sum('money');
+                $memberList[$k]['platform_income'] = $income_profit - $order_cost - $pay_cost - $agent_profit_cost;
+                $memberList[$k]['platform_income'] += 0;
+            }
+        }
+        $stat['member_count'] = count($memberList);
+        $fields = ['tkmoney', 'sxfmoney', 'money' , 'all_order_count', 'paid_order_coun
